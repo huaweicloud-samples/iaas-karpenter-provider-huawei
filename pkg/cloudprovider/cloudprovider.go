@@ -106,7 +106,7 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 		return nil, cloudprovider.NewCreateError(fmt.Errorf("instance provider is nil"), "InstanceProviderNotConfigured", "Instance provider is not configured")
 	}
 
-	createdInstance, err := c.instanceProvider.Create(ctx, nodeClass, nodeClaim, nil, instanceTypes)
+	createdInstance, err := c.instanceProvider.Create(ctx, nodeClass, nodeClaim, instanceTypes)
 	if err != nil {
 		if cloudprovider.IsInsufficientCapacityError(err) || cloudprovider.IsNodeClassNotReadyError(err) {
 			return nil, err

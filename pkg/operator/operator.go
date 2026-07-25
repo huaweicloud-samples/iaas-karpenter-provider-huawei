@@ -129,7 +129,7 @@ func NewOperator(ctx context.Context, operator *operator.Operator) (context.Cont
 	bssApi := sdk.NewBSSService(billingRegion(reg), globalCredentials, httpConfig)
 	cceApi := sdk.NewCCEService(cceReg, credentials, httpConfig)
 	unavailableOfferingCache := utils.NewOfferingAvailabilityCache(UnavailableOfferingTTL, DefaultCleanupInterval)
-	instanceProvider := instance.NewDefaultProvider(clusterID, cceApi, ecsApi, subnetProvider, unavailableOfferingCache)
+	instanceProvider := instance.NewDefaultProvider(clusterID, cceApi, subnetProvider, unavailableOfferingCache)
 	pricingProvider := pricing.NewDefaultProvider(bssApi, reg, func() string { return credentials.ProjectId })
 	instanceTypeProvider := instancetype.NewDefaultProvider(
 		ecsApi,

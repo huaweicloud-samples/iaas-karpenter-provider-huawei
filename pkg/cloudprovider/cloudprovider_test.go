@@ -92,7 +92,7 @@ type stubCloudProviderInstanceProvider struct {
 	createCalls int
 }
 
-func (s *stubCloudProviderInstanceProvider) Create(context.Context, *v1alpha1.CCENodeClass, *karpv1.NodeClaim, map[string]string, []*karpcloudprovider.InstanceType) (*instanceprovider.Instance, error) {
+func (s *stubCloudProviderInstanceProvider) Create(context.Context, *v1alpha1.CCENodeClass, *karpv1.NodeClaim, []*karpcloudprovider.InstanceType) (*instanceprovider.Instance, error) {
 	s.createCalls++
 	return s.instance, s.err
 }
@@ -109,10 +109,6 @@ func (s *stubCloudProviderInstanceProvider) List(context.Context) ([]*instancepr
 }
 
 func (s *stubCloudProviderInstanceProvider) Delete(context.Context, string) error {
-	return s.err
-}
-
-func (s *stubCloudProviderInstanceProvider) CreateTags(context.Context, string, map[string]string) error {
 	return s.err
 }
 

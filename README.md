@@ -21,7 +21,7 @@ Karpenter improves the efficiency and cost of running workloads on Kubernetes cl
 
 - A **Huawei Cloud CCE cluster** running Kubernetes **1.26 - 1.36**
 - Huawei Cloud credentials (AK/SK), or a CCE Pod Identity-associated IAM agency, with permissions for:
-  - **ECS** - Elastic Cloud Server (flavor listing, server tagging)
+  - **ECS** - Elastic Cloud Server (flavor and availability zone discovery)
   - **CCE** - Cloud Container Engine (node create/delete/list)
   - **VPC** - Virtual Private Cloud (subnet discovery)
   - **BSS** - Billing (on-demand pricing queries)

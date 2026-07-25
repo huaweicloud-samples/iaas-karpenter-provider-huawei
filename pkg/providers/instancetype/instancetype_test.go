@@ -650,10 +650,6 @@ func (f *fakeECSAPI) ListServersDetails(*ecsMdl.ListServersDetailsRequest) (*ecs
 	return &ecsMdl.ListServersDetailsResponse{}, nil
 }
 
-func (f *fakeECSAPI) BatchCreateServerTags(*ecsMdl.BatchCreateServerTagsRequest) (*ecsMdl.BatchCreateServerTagsResponse, error) {
-	return &ecsMdl.BatchCreateServerTagsResponse{}, nil
-}
-
 func (f *fakeECSAPI) ListFlavors(request *ecsMdl.ListFlavorsRequest) (*ecsMdl.ListFlavorsResponse, error) {
 	f.listFlavorsCalls++
 	requestCopy := *request

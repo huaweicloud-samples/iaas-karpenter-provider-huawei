@@ -91,14 +91,6 @@ func (s *ecsService) ListServersDetails(request *ecsMdl.ListServersDetailsReques
 	return client.ListServersDetails(request)
 }
 
-func (s *ecsService) BatchCreateServerTags(request *ecsMdl.BatchCreateServerTagsRequest) (*ecsMdl.BatchCreateServerTagsResponse, error) {
-	client, err := s.getClient()
-	if err != nil {
-		return nil, err
-	}
-	return client.BatchCreateServerTags(request)
-}
-
 func (s *ecsService) ListFlavors(request *ecsMdl.ListFlavorsRequest) (*ecsMdl.ListFlavorsResponse, error) {
 	client, err := s.getClient()
 	if err != nil {
