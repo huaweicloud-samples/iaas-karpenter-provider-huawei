@@ -31,9 +31,13 @@ import (
 	utils "github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/test/utils"
 )
 
+const (
+	managerImageRepository = "huaweiclouddeveloper/karpenter-provider-huawei"
+	managerImageTag        = "v0.0.1"
+	managerImage           = managerImageRepository + ":" + managerImageTag
+)
+
 var (
-	// managerImage is the manager image to be built and loaded for testing.
-	managerImage = "huaweiclouddeveloper/karpenter-provider-huawei:v0.0.1"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )

@@ -221,7 +221,7 @@ make docker-buildx IMG=<your-registry>/controller:<tag> # Cross-platform build
 
 ```bash
 make test              # Unit tests
-make test-e2e          # E2E tests (uses Kind)
+make test-e2e          # E2E tests (requires Docker, Kind, and Helm)
 make verify-manifests  # Lint and render Helm, then check generated CRD and RBAC drift
 ```
 
