@@ -235,7 +235,7 @@ make lint-fix  # Run with auto-fix
 ### Code Generation
 
 ```bash
-make manifests  # Generate the provider CRD in the Helm chart and controller RBAC
+make manifests  # Generate the provider CRD in the Helm chart
 make generate   # Generate DeepCopy methods
 ```
 
