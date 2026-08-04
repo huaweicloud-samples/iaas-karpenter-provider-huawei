@@ -11,10 +11,11 @@ CHART_DIR="${CHART_DIR:-${REPO_ROOT}/charts/karpenter-provider-huawei}"
 RELEASE_NAME="${RELEASE_NAME:-karpenter-provider-huawei}"
 NAMESPACE="${NAMESPACE:-karpenter-provider-huawei-system}"
 PROVIDER_API_PATH="${PROVIDER_API_PATH:?PROVIDER_API_PATH is required}"
+PROVIDER_CRD_NAME="${PROVIDER_CRD_NAME:?PROVIDER_CRD_NAME is required}"
 CONTROLLER_RBAC_PATH="${CONTROLLER_RBAC_PATH:?CONTROLLER_RBAC_PATH is required}"
 CONTROLLER_ROLE_NAME="${CONTROLLER_ROLE_NAME:?CONTROLLER_ROLE_NAME is required}"
-PROVIDER_CRD="karpenter.k8s.huawei_ccenodeclasses.yaml"
-RENDERED_ROLE="manifest-verification-manager-role"
+RENDERED_NAME_PREFIX="manifest-verification-"
+RENDERED_ROLE="${RENDERED_NAME_PREFIX}manager-role"
 
 if [[ "${CHART_DIR}" != /* ]]; then
   CHART_DIR="${REPO_ROOT}/${CHART_DIR}"
@@ -48,7 +49,7 @@ echo "Rendering complete Helm chart, including CRDs"
 "${HELM_BIN}" template "${RELEASE_NAME}" "${CHART_DIR}" \
   --namespace "${NAMESPACE}" \
   --include-crds \
-  --set-string namePrefix=manifest-verification- \
+  --set-string namePrefix="${RENDERED_NAME_PREFIX}" \
   >"${TEMP_DIR}/rendered.yaml"
 
 echo "Checking provider CRD generation drift"
@@ -60,8 +61,8 @@ echo "Checking provider CRD generation drift"
 
 shopt -s nullglob
 generated_crds=("${TEMP_DIR}/crds/"*.yaml)
-if (( ${#generated_crds[@]} != 1 )) || [[ "$(basename -- "${generated_crds[0]:-}")" != "${PROVIDER_CRD}" ]]; then
-  echo "provider CRD generation must produce only ${PROVIDER_CRD}; generated:" >&2
+if (( ${#generated_crds[@]} != 1 )) || [[ "$(basename -- "${generated_crds[0]:-}")" != "${PROVIDER_CRD_NAME}" ]]; then
+  echo "provider CRD generation must produce only ${PROVIDER_CRD_NAME}; generated:" >&2
   if (( ${#generated_crds[@]} == 0 )); then
     echo "  (none)" >&2
   else
@@ -71,10 +72,10 @@ if (( ${#generated_crds[@]} != 1 )) || [[ "$(basename -- "${generated_crds[0]:-}
 fi
 
 if ! diff -u \
-  --label "checked-in/${PROVIDER_CRD}" \
-  --label "generated/${PROVIDER_CRD}" \
-  "${CHART_DIR}/crds/${PROVIDER_CRD}" \
-  "${TEMP_DIR}/crds/${PROVIDER_CRD}"; then
+  --label "checked-in/${PROVIDER_CRD_NAME}" \
+  --label "generated/${PROVIDER_CRD_NAME}" \
+  "${CHART_DIR}/crds/${PROVIDER_CRD_NAME}" \
+  "${TEMP_DIR}/crds/${PROVIDER_CRD_NAME}"; then
   echo "provider CRD drift detected; run 'make manifests' and commit the updated chart CRD" >&2
   exit 1
 fi

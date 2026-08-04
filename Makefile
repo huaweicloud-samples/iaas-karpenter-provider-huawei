@@ -55,12 +55,14 @@ help: ## Display this help.
 ##@ Development
 
 PROVIDER_API_PATH ?= ./pkg/apis/...
+PROVIDER_CRD_NAME ?= karpenter.k8s.huawei_ccenodeclasses.yaml
 CONTROLLER_RBAC_PATH ?= ./pkg/controllers/...
 CONTROLLER_ROLE_NAME ?= manager-role
 
 .PHONY: manifests
 manifests: controller-gen ## Generate the provider CRD and controller RBAC manifests.
 	"$(CONTROLLER_GEN)" crd paths="$(PROVIDER_API_PATH)" output:crd:artifacts:config="$(HELM_CHART_DIR)/crds"
+	cp "$(HELM_CHART_DIR)/crds/$(PROVIDER_CRD_NAME)" "config/crd/bases/$(PROVIDER_CRD_NAME)"
 	"$(CONTROLLER_GEN)" rbac:roleName="$(CONTROLLER_ROLE_NAME)" paths="$(CONTROLLER_RBAC_PATH)" output:rbac:artifacts:config=config/rbac
 
 .PHONY: generate
@@ -196,6 +198,7 @@ verify-manifests: controller-gen ## Verify rendered Helm manifests, generated CR
 	RELEASE_NAME="$(HELM_RELEASE_NAME)" \
 	NAMESPACE="$(HELM_NAMESPACE)" \
 	PROVIDER_API_PATH="$(PROVIDER_API_PATH)" \
+	PROVIDER_CRD_NAME="$(PROVIDER_CRD_NAME)" \
 	CONTROLLER_RBAC_PATH="$(CONTROLLER_RBAC_PATH)" \
 	CONTROLLER_ROLE_NAME="$(CONTROLLER_ROLE_NAME)" \
 	./hack/verify-manifests.sh
