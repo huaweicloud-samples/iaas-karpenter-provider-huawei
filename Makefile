@@ -54,10 +54,14 @@ help: ## Display this help.
 
 ##@ Development
 
+PROVIDER_API_PATH ?= ./pkg/apis/...
+CONTROLLER_RBAC_PATH ?= ./pkg/controllers/...
+CONTROLLER_ROLE_NAME ?= manager-role
+
 .PHONY: manifests
 manifests: controller-gen ## Generate the provider CRD and controller RBAC manifests.
-	"$(CONTROLLER_GEN)" crd paths="./pkg/apis/..." output:crd:artifacts:config="$(HELM_CHART_DIR)/crds"
-	"$(CONTROLLER_GEN)" rbac:roleName=manager-role paths="./pkg/controllers/..." output:rbac:artifacts:config=config/rbac
+	"$(CONTROLLER_GEN)" crd paths="$(PROVIDER_API_PATH)" output:crd:artifacts:config="$(HELM_CHART_DIR)/crds"
+	"$(CONTROLLER_GEN)" rbac:roleName="$(CONTROLLER_ROLE_NAME)" paths="$(CONTROLLER_RBAC_PATH)" output:rbac:artifacts:config=config/rbac
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -191,6 +195,9 @@ verify-manifests: controller-gen ## Verify rendered Helm manifests, generated CR
 	CHART_DIR="$(HELM_CHART_DIR)" \
 	RELEASE_NAME="$(HELM_RELEASE_NAME)" \
 	NAMESPACE="$(HELM_NAMESPACE)" \
+	PROVIDER_API_PATH="$(PROVIDER_API_PATH)" \
+	CONTROLLER_RBAC_PATH="$(CONTROLLER_RBAC_PATH)" \
+	CONTROLLER_ROLE_NAME="$(CONTROLLER_ROLE_NAME)" \
 	./hack/verify-manifests.sh
 
 .PHONY: helm-install

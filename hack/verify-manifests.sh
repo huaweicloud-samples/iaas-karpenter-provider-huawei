@@ -10,8 +10,10 @@ HELM_BIN="${HELM:-helm}"
 CHART_DIR="${CHART_DIR:-${REPO_ROOT}/charts/karpenter-provider-huawei}"
 RELEASE_NAME="${RELEASE_NAME:-karpenter-provider-huawei}"
 NAMESPACE="${NAMESPACE:-karpenter-provider-huawei-system}"
+PROVIDER_API_PATH="${PROVIDER_API_PATH:?PROVIDER_API_PATH is required}"
+CONTROLLER_RBAC_PATH="${CONTROLLER_RBAC_PATH:?CONTROLLER_RBAC_PATH is required}"
+CONTROLLER_ROLE_NAME="${CONTROLLER_ROLE_NAME:?CONTROLLER_ROLE_NAME is required}"
 PROVIDER_CRD="karpenter.k8s.huawei_ccenodeclasses.yaml"
-GENERATED_ROLE="manager-role"
 RENDERED_ROLE="manifest-verification-manager-role"
 
 if [[ "${CHART_DIR}" != /* ]]; then
@@ -52,7 +54,7 @@ echo "Rendering complete Helm chart, including CRDs"
 echo "Checking provider CRD generation drift"
 (
   cd "${REPO_ROOT}"
-  "${CONTROLLER_GEN_BIN}" crd paths=./pkg/apis/... \
+  "${CONTROLLER_GEN_BIN}" crd paths="${PROVIDER_API_PATH}" \
     output:crd:artifacts:config="${TEMP_DIR}/crds"
 )
 
@@ -80,11 +82,11 @@ fi
 echo "Checking rendered manager RBAC against controller markers"
 (
   cd "${REPO_ROOT}"
-  "${CONTROLLER_GEN_BIN}" rbac:roleName="${GENERATED_ROLE}" paths=./pkg/controllers/... \
+  "${CONTROLLER_GEN_BIN}" rbac:roleName="${CONTROLLER_ROLE_NAME}" paths="${CONTROLLER_RBAC_PATH}" \
     output:rbac:artifacts:config="${TEMP_DIR}/rbac"
   go run ./hack/rbac-verifier \
     --generated "${TEMP_DIR}/rbac/role.yaml" \
-    --generated-role "${GENERATED_ROLE}" \
+    --generated-role "${CONTROLLER_ROLE_NAME}" \
     --rendered "${TEMP_DIR}/rendered.yaml" \
     --rendered-role "${RENDERED_ROLE}"
 )
