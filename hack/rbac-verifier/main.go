@@ -22,11 +22,12 @@ type options struct {
 }
 
 type permission struct {
-	apiGroup       string
-	resource       string
-	resourceName   string
-	nonResourceURL string
-	verb           string
+	apiGroup         string
+	resource         string
+	resourceName     string
+	allResourceNames bool
+	nonResourceURL   string
+	verb             string
 }
 
 func main() {
@@ -96,18 +97,20 @@ func permissionSet(rules []rbacv1.PolicyRule) map[permission]struct{} {
 	permissions := map[permission]struct{}{}
 	for _, rule := range rules {
 		resourceNames := rule.ResourceNames
-		if len(resourceNames) == 0 {
-			resourceNames = []string{"*"}
+		allResourceNames := len(resourceNames) == 0
+		if allResourceNames {
+			resourceNames = []string{""}
 		}
 		for _, apiGroup := range rule.APIGroups {
 			for _, resource := range rule.Resources {
 				for _, resourceName := range resourceNames {
 					for _, verb := range rule.Verbs {
 						permissions[permission{
-							apiGroup:     apiGroup,
-							resource:     resource,
-							resourceName: resourceName,
-							verb:         verb,
+							apiGroup:         apiGroup,
+							resource:         resource,
+							resourceName:     resourceName,
+							allResourceNames: allResourceNames,
+							verb:             verb,
 						}] = struct{}{}
 					}
 				}
@@ -160,11 +163,15 @@ func (item permission) String() string {
 	if item.nonResourceURL != "" {
 		return fmt.Sprintf("nonResourceURL=%q verb=%q", item.nonResourceURL, item.verb)
 	}
+	resourceName := fmt.Sprintf("resourceName=%q", item.resourceName)
+	if item.allResourceNames {
+		resourceName = "resourceNames=<all>"
+	}
 	return fmt.Sprintf(
-		"resource apiGroup=%q resource=%q resourceName=%q verb=%q",
+		"resource apiGroup=%q resource=%q %s verb=%q",
 		item.apiGroup,
 		item.resource,
-		item.resourceName,
+		resourceName,
 		item.verb,
 	)
 }
