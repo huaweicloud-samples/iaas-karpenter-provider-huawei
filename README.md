@@ -220,8 +220,9 @@ make docker-buildx IMG=<your-registry>/controller:<tag> # Cross-platform build
 ### Test
 
 ```bash
-make test      # Unit tests
-make test-e2e  # E2E tests (uses Kind)
+make test              # Unit tests
+make test-e2e          # E2E tests (uses Kind)
+make verify-manifests  # Lint and render Helm, then check generated CRD and RBAC drift
 ```
 
 ### Lint
@@ -234,7 +235,7 @@ make lint-fix  # Run with auto-fix
 ### Code Generation
 
 ```bash
-make manifests  # Generate CRD manifests
+make manifests  # Generate the provider CRD in the Helm chart and controller RBAC
 make generate   # Generate DeepCopy methods
 ```
 

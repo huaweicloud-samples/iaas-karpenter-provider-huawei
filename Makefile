@@ -55,8 +55,9 @@ help: ## Display this help.
 ##@ Development
 
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+manifests: controller-gen ## Generate the provider CRD and controller RBAC manifests.
+	"$(CONTROLLER_GEN)" crd paths="./pkg/apis/..." output:crd:artifacts:config="$(HELM_CHART_DIR)/crds"
+	"$(CONTROLLER_GEN)" rbac:roleName=manager-role paths="./pkg/controllers/..." output:rbac:artifacts:config=config/rbac
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -181,7 +182,16 @@ helm-package: ## Package the Helm chart and regenerate the repository index.
 
 .PHONY: helm-template
 helm-template: ## Render Helm chart templates locally.
-	$(HELM) template $(HELM_RELEASE_NAME) $(HELM_CHART_DIR) --namespace $(HELM_NAMESPACE)
+	$(HELM) template $(HELM_RELEASE_NAME) $(HELM_CHART_DIR) --namespace $(HELM_NAMESPACE) --include-crds
+
+.PHONY: verify-manifests
+verify-manifests: controller-gen ## Verify rendered Helm manifests, generated CRDs, and controller RBAC.
+	CONTROLLER_GEN="$(CONTROLLER_GEN)" \
+	HELM="$(HELM)" \
+	CHART_DIR="$(HELM_CHART_DIR)" \
+	RELEASE_NAME="$(HELM_RELEASE_NAME)" \
+	NAMESPACE="$(HELM_NAMESPACE)" \
+	./hack/verify-manifests.sh
 
 .PHONY: helm-install
 helm-install: ## Install the Helm chart to the K8s cluster.
