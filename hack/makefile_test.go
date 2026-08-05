@@ -10,6 +10,12 @@ import (
 )
 
 func TestE2ETargetCleansKindClusterAfterFailure(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getting working directory: %v", err)
+	}
+	repoRoot := filepath.Dir(wd)
+
 	testCases := []struct {
 		name          string
 		environment   string
@@ -21,7 +27,6 @@ func TestE2ETargetCleansKindClusterAfterFailure(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			repoRoot := filepath.Dir(mustGetwd(t))
 			binDir := t.TempDir()
 			kindLog := filepath.Join(t.TempDir(), "kind.log")
 			controllerGen := filepath.Join(binDir, "controller-gen")
@@ -82,15 +87,6 @@ exit 0
 			}
 		})
 	}
-}
-
-func mustGetwd(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getting working directory: %v", err)
-	}
-	return wd
 }
 
 func writeExecutable(t *testing.T, path, contents string) {
