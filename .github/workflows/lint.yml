@@ -23,3 +23,6 @@ jobs:
 
       - name: Run linter
         run: make lint
+
+      - name: Verify Helm manifests
+        run: make verify-manifests

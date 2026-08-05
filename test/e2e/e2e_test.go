@@ -21,6 +21,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -30,18 +31,30 @@ import (
 	utils "github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/test/utils"
 )
 
-// namespace where the project is deployed in
-const namespace = "karpenter-provider-huawei-system"
-
-// metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "karpenter-provider-huawei-controller-manager"
+const (
+	// namespace where the project is deployed in
+	namespace = "karpenter-provider-huawei-system"
+	// helmReleaseName is the name of the Helm release under test
+	helmReleaseName = "karpenter-provider-huawei"
+	// credentialsSecretName is the controlled credentials Secret used by the test release
+	credentialsSecretName = "huawei-credentials"
+	// providerCRDName is retained when the Helm release is uninstalled
+	providerCRDName = "ccenodeclasses.karpenter.k8s.huawei"
+	// controllerSelector identifies controller-manager pods
+	controllerSelector = "control-plane=controller-manager"
+	// metricsServiceName is the name of the metrics service of the project
+	metricsServiceName = "karpenter-provider-huawei-controller-manager"
+)
 
 var _ = Describe("Manager", Ordered, func() {
-	var controllerPodName string
+	var (
+		controllerPodName    string
+		helmReleaseInstalled bool
+	)
 
 	// Before running the tests, set up the environment by creating the namespace,
-	// enforce the restricted security policy to the namespace, installing CRDs,
-	// and deploying the controller.
+	// enforcing the restricted security policy, creating controlled credentials,
+	// and installing the Helm release.
 	BeforeAll(func() {
 		By("creating manager namespace")
 		cmd := exec.Command("kubectl", "create", "ns", namespace)
@@ -54,13 +67,8 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
 
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
-
 		By("creating dummy Huawei credentials secret")
-		cmd = exec.Command("kubectl", "create", "secret", "generic", "huawei-credentials",
+		cmd = exec.Command("kubectl", "create", "secret", "generic", credentialsSecretName,
 			"--from-literal=HUAWEICLOUD_SDK_REGION_ID=cn-north-4",
 			"--from-literal=HUAWEICLOUD_SDK_AK=fake-ak",
 			"--from-literal=HUAWEICLOUD_SDK_SK=fake-sk",
@@ -70,30 +78,38 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create dummy Huawei credentials secret")
 
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
+		By("installing the controller-manager Helm release")
+		cmd = helmCommand("install", helmReleaseName, "charts/karpenter-provider-huawei",
+			"--namespace", namespace,
+			"--set-string", fmt.Sprintf("image.repository=%s", managerImageRepository),
+			"--set-string", fmt.Sprintf("image.tag=%s", managerImageTag),
+			"--set", "image.pullPolicy=Never",
+			"--set", "credentials.create=false",
+			"--set-string", fmt.Sprintf("credentials.existingSecret=%s", credentialsSecretName),
+		)
 		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+		Expect(err).NotTo(HaveOccurred(), "Failed to install the controller-manager Helm release")
+		helmReleaseInstalled = true
 	})
 
-	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
-	// and deleting the namespace.
+	// Helm removes release-managed resources but intentionally retains CRDs. The disposable
+	// Kind cluster owns final cleanup of the CRDs, namespace, and controlled credentials Secret.
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
+		By("uninstalling the controller-manager Helm release")
+		cmd = helmCommand("uninstall", helmReleaseName, "--namespace", namespace, "--ignore-not-found")
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to uninstall the controller-manager Helm release")
 
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
-
-		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
-		_, _ = utils.Run(cmd)
+		if helmReleaseInstalled {
+			By("validating that Helm retained the provider CRD")
+			cmd = exec.Command("kubectl", "get", "customresourcedefinition", providerCRDName)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Expected Helm uninstall to retain the provider CRD")
+		}
 	})
 
 	// After each test, check for failures and collect logs, events,
@@ -102,7 +118,7 @@ var _ = Describe("Manager", Ordered, func() {
 		specReport := CurrentSpecReport()
 		if specReport.Failed() {
 			By("Fetching controller manager pod logs")
-			cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
+			cmd := exec.Command("kubectl", "logs", "-l", controllerSelector, "--all-containers", "--prefix", "-n", namespace)
 			controllerLogs, err := utils.Run(cmd)
 			if err == nil {
 				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n %s", controllerLogs)
@@ -129,7 +145,7 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 
 			By("Fetching controller manager pod description")
-			cmd = exec.Command("kubectl", "describe", "pod", controllerPodName, "-n", namespace)
+			cmd = exec.Command("kubectl", "describe", "pod", "-l", controllerSelector, "-n", namespace)
 			podDescription, err := utils.Run(cmd)
 			if err == nil {
 				fmt.Println("Pod description:\n", podDescription)
@@ -148,7 +164,7 @@ var _ = Describe("Manager", Ordered, func() {
 			verifyControllerUp := func(g Gomega) {
 				// Get the name of the controller-manager pod
 				cmd := exec.Command("kubectl", "get",
-					"pods", "-l", "control-plane=controller-manager",
+					"pods", "-l", controllerSelector,
 					"-o", "go-template={{ range .items }}"+
 						"{{ if not .metadata.deletionTimestamp }}"+
 						"{{ .metadata.name }}"+
@@ -179,8 +195,29 @@ var _ = Describe("Manager", Ordered, func() {
 				output, err = utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("manager"), "expected controller pod to only run the manager container")
+
+				cmd = exec.Command("kubectl", "get", "pods", controllerPodName,
+					"-o", "jsonpath={.spec.containers[?(@.name=='manager')].image}",
+					"-n", namespace,
+				)
+				output, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal(managerImage), "expected controller pod to use the image built by the test")
+
+				cmd = exec.Command("kubectl", "get", "pods", controllerPodName,
+					"-o", "jsonpath={.spec.containers[?(@.name=='manager')].envFrom[0].secretRef.name}",
+					"-n", namespace,
+				)
+				output, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal(credentialsSecretName), "expected controller pod to use the controlled credentials Secret")
 			}
 			Eventually(verifyControllerUp).Should(Succeed())
+
+			By("validating that the Helm release is deployed")
+			cmd := helmCommand("status", helmReleaseName, "--namespace", namespace)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to retrieve the Helm release")
 		})
 
 		It("should ensure the metrics endpoint is serving metrics", func() {
@@ -271,4 +308,12 @@ func getMetricsOutput() (string, error) {
 	By("getting the curl-metrics logs")
 	cmd := exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
 	return utils.Run(cmd)
+}
+
+func helmCommand(args ...string) *exec.Cmd {
+	helmBinary := os.Getenv("HELM")
+	if helmBinary == "" {
+		helmBinary = "helm"
+	}
+	return exec.Command(helmBinary, args...)
 }
