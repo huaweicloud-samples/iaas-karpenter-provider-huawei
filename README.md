@@ -163,10 +163,35 @@ spec:
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
+        - key: karpenter.k8s.huawei/instance-category
+          operator: In
+          values: ["c"]
+        - key: karpenter.k8s.huawei/instance-family
+          operator: In
+          values: ["c7h"]
+        - key: karpenter.k8s.huawei/instance-generation
+          operator: Gt
+          values: ["6"]
+        - key: karpenter.k8s.huawei/instance-cpu
+          operator: In
+          values: ["4"]
+        - key: karpenter.k8s.huawei/instance-memory
+          operator: In
+          values: ["8192"]
+        - key: karpenter.k8s.huawei/instance-size
+          operator: In
+          values: ["xlarge"]
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
     consolidateAfter: 1m
 ```
+
+Huawei-specific instance labels are derived from each ECS Flavor. Known
+attributes are emitted as singleton `In` requirements; an attribute that
+cannot be derived is represented as `DoesNotExist` and does not remove the
+Flavor from the candidate set. Use `In` (or `Exists`) when a workload requires
+a known value. Kubernetes `NotIn` retains its standard missing-label behavior,
+so it can also match a Flavor whose attribute is absent.
 
 ### Step 3: Deploy a Workload
 

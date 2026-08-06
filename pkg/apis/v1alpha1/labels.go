@@ -29,6 +29,9 @@ var (
 		apis.Group,
 	}
 
+	LabelInstanceCategory         = apis.Group + "/instance-category"
+	LabelInstanceFamily           = apis.Group + "/instance-family"
+	LabelInstanceGeneration       = apis.Group + "/instance-generation"
 	LabelInstanceSize             = apis.Group + "/instance-size"
 	LabelInstanceCPU              = apis.Group + "/instance-cpu"
 	LabelInstanceMemory           = apis.Group + "/instance-memory"
@@ -48,6 +51,9 @@ var (
 func init() {
 	karpv1.RestrictedLabelDomains = karpv1.RestrictedLabelDomains.Insert(RestrictedLabelDomains...)
 	karpv1.WellKnownLabels = karpv1.WellKnownLabels.Insert(
+		LabelInstanceCategory,
+		LabelInstanceFamily,
+		LabelInstanceGeneration,
 		LabelInstanceSize,
 		LabelInstanceCPU,
 		LabelInstanceMemory,

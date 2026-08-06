@@ -44,6 +44,12 @@ func TestResolvedNodeClaimLabels_IncludesRestrictedWellKnownLabels(t *testing.T)
 			karpscheduling.NewRequirement(corev1.LabelOSStable, corev1.NodeSelectorOpIn, string(corev1.Linux)),
 			karpscheduling.NewRequirement(corev1.LabelTopologyRegion, corev1.NodeSelectorOpIn, "ap-southeast-3"),
 			karpscheduling.NewRequirement(corev1.LabelTopologyZone, corev1.NodeSelectorOpIn, "ap-southeast-3a", "ap-southeast-3b"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, "c"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceFamily, corev1.NodeSelectorOpIn, "c9"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpIn, "9"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceCPU, corev1.NodeSelectorOpIn, "2"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceMemory, corev1.NodeSelectorOpIn, "4096"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceSize, corev1.NodeSelectorOpIn, "large"),
 		),
 	}
 	createdInstance := &instanceprovider.Instance{
@@ -70,6 +76,48 @@ func TestResolvedNodeClaimLabels_IncludesRestrictedWellKnownLabels(t *testing.T)
 	}
 	if got := labels[corev1.LabelTopologyRegion]; got != "ap-southeast-3" {
 		t.Fatalf("expected region label %q, got %q", "ap-southeast-3", got)
+	}
+	for key, want := range map[string]string{
+		v1alpha1.LabelInstanceCategory:   "c",
+		v1alpha1.LabelInstanceFamily:     "c9",
+		v1alpha1.LabelInstanceGeneration: "9",
+		v1alpha1.LabelInstanceCPU:        "2",
+		v1alpha1.LabelInstanceMemory:     "4096",
+		v1alpha1.LabelInstanceSize:       "large",
+	} {
+		if got := labels[key]; got != want {
+			t.Fatalf("expected Huawei label %q=%q, got %q", key, want, got)
+		}
+	}
+}
+
+func TestResolvedNodeClaimLabels_OmitsUnknownHuaweiRequirements(t *testing.T) {
+	instanceType := &karpcloudprovider.InstanceType{
+		Name: "zc12e.01xlarge.2",
+		Requirements: karpscheduling.NewRequirements(
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceFamily, corev1.NodeSelectorOpIn, "zc12e"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpIn, "12"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceCPU, corev1.NodeSelectorOpIn, "2"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceMemory, corev1.NodeSelectorOpIn, "4096"),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpDoesNotExist),
+			karpscheduling.NewRequirement(v1alpha1.LabelInstanceSize, corev1.NodeSelectorOpDoesNotExist),
+		),
+	}
+	labels := resolvedNodeClaimLabels(instanceType, &instanceprovider.Instance{Flavor: instanceType.Name, Zone: "zone-a"})
+	for _, key := range []string{v1alpha1.LabelInstanceCategory, v1alpha1.LabelInstanceSize} {
+		if _, ok := labels[key]; ok {
+			t.Fatalf("expected unknown Huawei label %q to be omitted, got %q", key, labels[key])
+		}
+	}
+	for key, want := range map[string]string{
+		v1alpha1.LabelInstanceFamily:     "zc12e",
+		v1alpha1.LabelInstanceGeneration: "12",
+		v1alpha1.LabelInstanceCPU:        "2",
+		v1alpha1.LabelInstanceMemory:     "4096",
+	} {
+		if got := labels[key]; got != want {
+			t.Fatalf("expected known Huawei label %q=%q, got %q", key, want, got)
+		}
 	}
 }
 

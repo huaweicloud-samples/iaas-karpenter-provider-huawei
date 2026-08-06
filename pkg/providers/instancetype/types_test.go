@@ -1,14 +1,226 @@
 package instancetype
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	ecsMdl "github.com/huaweicloud/huaweicloud-sdk-go-v3/services/ecs/v2/model"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"sigs.k8s.io/karpenter/pkg/scheduling"
 
 	"github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/pkg/apis/v1alpha1"
 )
+
+func TestNewInstanceType_ExposesHuaweiFlavorRequirements(t *testing.T) {
+	testCases := []struct {
+		name       string
+		flavorName string
+		category   string
+		family     string
+		generation string
+		cpu        string
+		memory     string
+		size       string
+	}{
+		{name: "c7", flavorName: "c7.large.2", category: "c", family: "c7", generation: "7", cpu: "2", memory: "4096", size: "large"},
+		{name: "c7h", flavorName: "c7h.xlarge.2", category: "c", family: "c7h", generation: "7", cpu: "4", memory: "8192", size: "xlarge"},
+		{name: "kunpeng c1", flavorName: "kc1.small.1", category: "c", family: "kc1", generation: "1", cpu: "1", memory: "1024", size: "small"},
+		{name: "aC9", flavorName: "ac9.2xlarge.2", category: "c", family: "ac9", generation: "9", cpu: "8", memory: "16384", size: "2xlarge"},
+		{name: "kunpeng x1 without size", flavorName: "kx1", category: "x", family: "kx1", generation: "1", cpu: "4", memory: "8192"},
+		{name: "multi-digit generation", flavorName: "c10e.medium.4", category: "c", family: "c10e", generation: "10", cpu: "1", memory: "4096", size: "medium"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := ecsMdl.Flavor{Name: tc.flavorName, Vcpus: tc.cpu, Ram: 0}
+			if tc.memory != "" {
+				var ram int32
+				if _, err := fmt.Sscan(tc.memory, &ram); err != nil {
+					t.Fatalf("parsing test memory: %v", err)
+				}
+				info.Ram = ram
+			}
+			requirements := NewInstanceType(info, "cn-north-4", nil, "containerd", nil, v1alpha1.BlockDeviceMappings{}, nil, nil).Requirements
+
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, tc.category)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceFamily, corev1.NodeSelectorOpIn, tc.family)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpIn, tc.generation)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceCPU, corev1.NodeSelectorOpIn, tc.cpu)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceMemory, corev1.NodeSelectorOpIn, tc.memory)
+			if tc.size == "" {
+				assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceSize, corev1.NodeSelectorOpDoesNotExist)
+			} else {
+				assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceSize, corev1.NodeSelectorOpIn, tc.size)
+			}
+		})
+	}
+}
+
+func TestNewInstanceType_RecognizesAllHuaweiMainSeries(t *testing.T) {
+	mainSeries := []string{"t", "s", "x", "c", "h", "d", "i", "ir", "m", "e", "p", "g", "pi", "fp", "ai"}
+	for _, series := range mainSeries {
+		t.Run(series, func(t *testing.T) {
+			requirements := NewInstanceType(ecsMdl.Flavor{
+				Name:  series + "1.large.1",
+				Vcpus: "2",
+				Ram:   4096,
+			}, "cn-north-4", nil, "containerd", nil, v1alpha1.BlockDeviceMappings{}, nil, nil).Requirements
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, series)
+		})
+	}
+}
+
+func TestNewInstanceType_DerivedHuaweiRequirementsFailIndependently(t *testing.T) {
+	testCases := []struct {
+		name       string
+		flavor     ecsMdl.Flavor
+		category   string
+		family     string
+		generation string
+		cpu        string
+		memory     string
+		size       string
+	}{
+		{
+			name:   "unknown category preserves family and generation",
+			flavor: ecsMdl.Flavor{Name: "zc12e.large.2", Vcpus: "2", Ram: 4096},
+			family: "zc12e", generation: "12", cpu: "2", memory: "4096", size: "large",
+		},
+		{
+			name:     "invalid size preserves first segment attributes",
+			flavor:   ecsMdl.Flavor{Name: "c7.01xlarge.2", Vcpus: "2", Ram: 4096},
+			category: "c", family: "c7", generation: "7", cpu: "2", memory: "4096",
+		},
+		{
+			name:     "missing size preserves first segment attributes",
+			flavor:   ecsMdl.Flavor{Name: "kx1", Vcpus: "4", Ram: 8192},
+			category: "x", family: "kx1", generation: "1", cpu: "4", memory: "8192",
+		},
+		{
+			name:   "malformed generation does not remove structured values",
+			flavor: ecsMdl.Flavor{Name: "c7x2.large.2", Vcpus: "2", Ram: 4096},
+			cpu:    "2", memory: "4096", size: "large",
+		},
+		{
+			name:   "uppercase generation is rejected independently",
+			flavor: ecsMdl.Flavor{Name: "C7.large.2", Vcpus: "2", Ram: 4096},
+			cpu:    "2", memory: "4096", size: "large",
+		},
+		{
+			name:   "leading zero generation is rejected independently",
+			flavor: ecsMdl.Flavor{Name: "c07.large.2", Vcpus: "2", Ram: 4096},
+			cpu:    "2", memory: "4096", size: "large",
+		},
+		{
+			name:       "family label over the Kubernetes limit is rejected independently",
+			flavor:     ecsMdl.Flavor{Name: strings.Repeat("z", 64) + "7.large.2", Vcpus: "2", Ram: 4096},
+			generation: "7", cpu: "2", memory: "4096", size: "large",
+		},
+		{
+			name:     "invalid cpu does not remove other values",
+			flavor:   ecsMdl.Flavor{Name: "c7.large.2", Vcpus: "02", Ram: 4096},
+			category: "c", family: "c7", generation: "7", memory: "4096", size: "large",
+		},
+		{
+			name:     "invalid memory does not remove other values",
+			flavor:   ecsMdl.Flavor{Name: "c7.large.2", Vcpus: "2", Ram: 0},
+			category: "c", family: "c7", generation: "7", cpu: "2", size: "large",
+		},
+		{
+			name:   "aws category alias is not introduced",
+			flavor: ecsMdl.Flavor{Name: "r7.large.2", Vcpus: "2", Ram: 4096},
+			family: "r7", generation: "7", cpu: "2", memory: "4096", size: "large",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			requirements := NewInstanceType(tc.flavor, "cn-north-4", nil, "containerd", nil, v1alpha1.BlockDeviceMappings{}, nil, nil).Requirements
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceCategory, requirementOperator(tc.category), tc.category)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceFamily, requirementOperator(tc.family), tc.family)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceGeneration, requirementOperator(tc.generation), tc.generation)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceCPU, requirementOperator(tc.cpu), tc.cpu)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceMemory, requirementOperator(tc.memory), tc.memory)
+			assertHuaweiRequirement(t, requirements, v1alpha1.LabelInstanceSize, requirementOperator(tc.size), tc.size)
+		})
+	}
+}
+
+func TestNewInstanceType_HuaweiRequirementsUseKarpenterIntersection(t *testing.T) {
+	requirements := NewInstanceType(ecsMdl.Flavor{
+		Name:  "c7.large.2",
+		Vcpus: "2",
+		Ram:   4096,
+	}, "cn-north-4", nil, "containerd", nil, v1alpha1.BlockDeviceMappings{}, nil, nil).Requirements
+
+	category := requirements.Get(v1alpha1.LabelInstanceCategory)
+	if !category.HasIntersection(scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, "c")) {
+		t.Fatalf("expected category In intersection")
+	}
+	if category.HasIntersection(scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, "m")) {
+		t.Fatalf("expected category In intersection to reject m")
+	}
+	if !category.HasIntersection(scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpExists)) {
+		t.Fatalf("expected category Exists intersection")
+	}
+	if category.HasIntersection(scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpDoesNotExist)) {
+		t.Fatalf("expected category DoesNotExist intersection to reject known category")
+	}
+	generation := requirements.Get(v1alpha1.LabelInstanceGeneration)
+	if !generation.HasIntersection(scheduling.NewRequirement(v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpIn, "7")) {
+		t.Fatalf("expected generation In intersection")
+	}
+	if generation.HasIntersection(scheduling.NewRequirement(v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpIn, "8")) {
+		t.Fatalf("expected generation In intersection to reject generation 8")
+	}
+	if !generation.HasIntersection(scheduling.NewRequirement(v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpGt, "6")) {
+		t.Fatalf("expected generation Gt intersection")
+	}
+	if generation.HasIntersection(scheduling.NewRequirement(v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpLt, "7")) {
+		t.Fatalf("expected generation Lt intersection to reject generation 7")
+	}
+
+	unknown := NewInstanceType(ecsMdl.Flavor{Name: "zc12e.large.2", Vcpus: "2", Ram: 4096}, "cn-north-4", nil, "containerd", nil, v1alpha1.BlockDeviceMappings{}, nil, nil).Requirements
+	if err := unknown.Compatible(scheduling.NewRequirements(scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpNotIn, "c")), scheduling.AllowUndefinedWellKnownLabels); err != nil {
+		t.Fatalf("expected NotIn to retain missing-label semantics")
+	}
+	if err := unknown.Compatible(scheduling.NewRequirements(scheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, "c")), scheduling.AllowUndefinedWellKnownLabels); err == nil {
+		t.Fatalf("expected In to require a known category")
+	}
+}
+
+func requirementOperator(value string) corev1.NodeSelectorOperator {
+	if value == "" {
+		return corev1.NodeSelectorOpDoesNotExist
+	}
+	return corev1.NodeSelectorOpIn
+}
+
+func assertHuaweiRequirement(t *testing.T, requirements scheduling.Requirements, key string, operator corev1.NodeSelectorOperator, values ...string) {
+	t.Helper()
+	if operator == corev1.NodeSelectorOpDoesNotExist {
+		values = nil
+	}
+	requirement := requirements.Get(key)
+	if requirement == nil {
+		t.Fatalf("expected requirement for %q", key)
+	}
+	if got := requirement.Operator(); got != operator {
+		t.Fatalf("expected %q operator %q, got %q", key, operator, got)
+	}
+	if len(values) == 0 {
+		if got := requirement.Values(); len(got) != 0 {
+			t.Fatalf("expected %q to have no values, got %v", key, got)
+		}
+		return
+	}
+	got := requirement.Values()
+	if len(got) != len(values) || got[0] != values[0] {
+		t.Fatalf("expected %q values %v, got %v", key, values, got)
+	}
+}
 
 func blockDeviceMappingsWithK8SVolume(size int32) v1alpha1.BlockDeviceMappings {
 	return v1alpha1.BlockDeviceMappings{
