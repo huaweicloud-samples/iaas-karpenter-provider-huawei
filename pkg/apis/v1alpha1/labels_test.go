@@ -35,6 +35,21 @@ func TestKnownEphemeralTaints_ContainsCCENetworkUnavailable(t *testing.T) {
 	}
 }
 
+func TestHuaweiInstanceLabelsAreWellKnown(t *testing.T) {
+	for _, label := range []string{
+		LabelInstanceCategory,
+		LabelInstanceFamily,
+		LabelInstanceGeneration,
+		LabelInstanceCPU,
+		LabelInstanceMemory,
+		LabelInstanceSize,
+	} {
+		if !karpv1.WellKnownLabels.Has(label) {
+			t.Fatalf("expected Huawei label %q to be well-known", label)
+		}
+	}
+}
+
 func TestManagedUninitializedNodeTreatsNetworkUnavailableAsKnownEphemeralTaint(t *testing.T) {
 	originalKnownEphemeralTaints := append([]corev1.Taint(nil), karpscheduling.KnownEphemeralTaints...)
 	t.Cleanup(func() {

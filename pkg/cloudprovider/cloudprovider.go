@@ -46,6 +46,12 @@ var resolvedNodeClaimLabelKeys = []string{
 	corev1.LabelArchStable,
 	corev1.LabelOSStable,
 	corev1.LabelTopologyRegion,
+	v1alpha1.LabelInstanceCategory,
+	v1alpha1.LabelInstanceFamily,
+	v1alpha1.LabelInstanceGeneration,
+	v1alpha1.LabelInstanceCPU,
+	v1alpha1.LabelInstanceMemory,
+	v1alpha1.LabelInstanceSize,
 }
 
 // CloudProvider implements Karpenter's CloudProvider interface for Huawei Cloud.

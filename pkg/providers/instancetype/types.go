@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
 	"sigs.k8s.io/karpenter/pkg/scheduling"
@@ -142,6 +143,7 @@ func NewInstanceType(
 func computeRequirements(info ecsMdl.Flavor, region string, offeringZones []string) scheduling.Requirements {
 	capacityTypes := []string{ChargeTypeOnDemand}
 	availableZones := sets.New(offeringZones...)
+	attributes := deriveFlavorAttributes(info)
 
 	requirements := scheduling.NewRequirements(
 		// Well Known Upstream
@@ -153,10 +155,13 @@ func computeRequirements(info ecsMdl.Flavor, region string, offeringZones []stri
 		// Well Known to Karpenter
 		scheduling.NewRequirement(karpv1.CapacityTypeLabelKey, corev1.NodeSelectorOpIn, capacityTypes...),
 		// Well Known to Huawei
-		scheduling.NewRequirement(v1alpha1.LabelInstanceCPU, corev1.NodeSelectorOpIn, info.Vcpus),
-		scheduling.NewRequirement(v1alpha1.LabelInstanceMemory, corev1.NodeSelectorOpIn, strconv.Itoa(int(info.Ram))),
+		derivedRequirement(v1alpha1.LabelInstanceCategory, attributes.category),
+		derivedRequirement(v1alpha1.LabelInstanceFamily, attributes.family),
+		derivedRequirement(v1alpha1.LabelInstanceGeneration, attributes.generation),
+		derivedRequirement(v1alpha1.LabelInstanceCPU, attributes.cpu),
+		derivedRequirement(v1alpha1.LabelInstanceMemory, attributes.memory),
+		derivedRequirement(v1alpha1.LabelInstanceSize, attributes.size),
 		scheduling.NewRequirement(v1alpha1.LabelInstanceNetworkBandwidth, corev1.NodeSelectorOpDoesNotExist),
-		scheduling.NewRequirement(v1alpha1.LabelInstanceSize, corev1.NodeSelectorOpDoesNotExist),
 		scheduling.NewRequirement(v1alpha1.LabelInstanceGPUName, corev1.NodeSelectorOpDoesNotExist),
 		scheduling.NewRequirement(v1alpha1.LabelInstanceGPUManufacturer, corev1.NodeSelectorOpDoesNotExist),
 		scheduling.NewRequirement(v1alpha1.LabelInstanceGPUCount, corev1.NodeSelectorOpDoesNotExist),
@@ -166,6 +171,149 @@ func computeRequirements(info ecsMdl.Flavor, region string, offeringZones []stri
 		requirements.Add(scheduling.NewRequirement(corev1.LabelTopologyZone, corev1.NodeSelectorOpIn, availableZones.UnsortedList()...))
 	}
 	return requirements
+}
+
+type derivedAttribute struct {
+	value string
+	known bool
+}
+
+type flavorAttributes struct {
+	category   derivedAttribute
+	family     derivedAttribute
+	generation derivedAttribute
+	cpu        derivedAttribute
+	memory     derivedAttribute
+	size       derivedAttribute
+}
+
+var huaweiMainSeries = sets.New[string]("t", "s", "x", "c", "h", "d", "i", "ir", "m", "e", "p", "g", "pi", "fp", "ai")
+
+func deriveFlavorAttributes(info ecsMdl.Flavor) flavorAttributes {
+	attributes := flavorAttributes{}
+	generationName := info.Name
+	if parts := strings.SplitN(info.Name, ".", 2); len(parts) > 0 {
+		generationName = parts[0]
+	}
+	attributes.family, attributes.generation, attributes.category = parseGenerationName(generationName)
+	attributes.cpu = canonicalPositiveDecimal(info.Vcpus)
+	if info.Ram > 0 {
+		attributes.memory.value = strconv.Itoa(int(info.Ram))
+		attributes.memory.known = validFlavorLabelValue(attributes.memory.value)
+	}
+	attributes.size = parseFlavorSize(info.Name)
+	return attributes
+}
+
+func derivedRequirement(key string, attribute derivedAttribute) *scheduling.Requirement {
+	if !attribute.known {
+		return scheduling.NewRequirement(key, corev1.NodeSelectorOpDoesNotExist)
+	}
+	return scheduling.NewRequirement(key, corev1.NodeSelectorOpIn, attribute.value)
+}
+
+func parseGenerationName(name string) (family, generation, category derivedAttribute) {
+	if name == "" {
+		return derivedAttribute{}, derivedAttribute{}, derivedAttribute{}
+	}
+
+	digitStart, digitEnd := -1, -1
+	for i := 0; i < len(name); i++ {
+		isDigit := name[i] >= '0' && name[i] <= '9'
+		if !isDigit {
+			if digitStart != -1 && digitEnd == -1 {
+				digitEnd = i
+			}
+			continue
+		}
+		if digitStart == -1 {
+			digitStart = i
+			continue
+		}
+		if digitEnd != -1 {
+			return derivedAttribute{}, derivedAttribute{}, derivedAttribute{}
+		}
+	}
+	if digitStart == -1 {
+		return derivedAttribute{}, derivedAttribute{}, derivedAttribute{}
+	}
+	if digitEnd == -1 {
+		digitEnd = len(name)
+	}
+	if digitStart == 0 || digitEnd == digitStart || name[digitStart] == '0' {
+		return derivedAttribute{}, derivedAttribute{}, derivedAttribute{}
+	}
+	for i, char := range []byte(name) {
+		if i >= digitStart && i < digitEnd {
+			continue
+		}
+		if char < 'a' || char > 'z' {
+			return derivedAttribute{}, derivedAttribute{}, derivedAttribute{}
+		}
+	}
+
+	family.value = name
+	family.known = validFlavorLabelValue(family.value)
+	generation = canonicalPositiveDecimal(name[digitStart:digitEnd])
+	prefix := name[:digitStart]
+	category.value, category.known = huaweiCategory(prefix)
+	if category.known && !validFlavorLabelValue(category.value) {
+		category = derivedAttribute{}
+	}
+	return family, generation, category
+}
+
+func huaweiCategory(prefix string) (string, bool) {
+	if huaweiMainSeries.Has(prefix) {
+		return prefix, true
+	}
+	if strings.HasPrefix(prefix, "k") {
+		category := strings.TrimPrefix(prefix, "k")
+		if huaweiMainSeries.Has(category) {
+			return category, true
+		}
+	}
+	// Huawei's aC family is explicitly classified as Compute even though the
+	// current generic naming table only documents x86 and Kunpeng prefixes.
+	if prefix == "ac" {
+		return "c", true
+	}
+	return "", false
+}
+
+func parseFlavorSize(name string) derivedAttribute {
+	parts := strings.Split(name, ".")
+	if len(parts) < 2 {
+		return derivedAttribute{}
+	}
+	size := parts[1]
+	switch size {
+	case "small", "medium", "large", "xlarge":
+		return derivedAttribute{value: size, known: true}
+	}
+	if !strings.HasSuffix(size, "xlarge") {
+		return derivedAttribute{}
+	}
+	count := strings.TrimSuffix(size, "xlarge")
+	if !canonicalPositiveDecimal(count).known {
+		return derivedAttribute{}
+	}
+	return derivedAttribute{value: size, known: validFlavorLabelValue(size)}
+}
+
+func canonicalPositiveDecimal(value string) derivedAttribute {
+	if value == "" || value[0] == '0' {
+		return derivedAttribute{}
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 || strconv.Itoa(parsed) != value {
+		return derivedAttribute{}
+	}
+	return derivedAttribute{value: value, known: validFlavorLabelValue(value)}
+}
+
+func validFlavorLabelValue(value string) bool {
+	return len(utilvalidation.IsValidLabelValue(value)) == 0
 }
 
 func computeCapacity(info ecsMdl.Flavor, maxPods *int32, blockDeviceMappings v1alpha1.BlockDeviceMappings) corev1.ResourceList {

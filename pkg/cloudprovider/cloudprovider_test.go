@@ -36,40 +36,81 @@ import (
 	instancetypeprovider "github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/pkg/providers/instancetype"
 )
 
-func TestResolvedNodeClaimLabels_IncludesRestrictedWellKnownLabels(t *testing.T) {
-	instanceType := &karpcloudprovider.InstanceType{
-		Name: "c9.large.2",
-		Requirements: karpscheduling.NewRequirements(
-			karpscheduling.NewRequirement(corev1.LabelArchStable, corev1.NodeSelectorOpIn, "amd64"),
-			karpscheduling.NewRequirement(corev1.LabelOSStable, corev1.NodeSelectorOpIn, string(corev1.Linux)),
-			karpscheduling.NewRequirement(corev1.LabelTopologyRegion, corev1.NodeSelectorOpIn, "ap-southeast-3"),
-			karpscheduling.NewRequirement(corev1.LabelTopologyZone, corev1.NodeSelectorOpIn, "ap-southeast-3a", "ap-southeast-3b"),
-		),
-	}
-	createdInstance := &instanceprovider.Instance{
-		Flavor: "c9.large.2",
-		Zone:   "ap-southeast-3a",
+func TestCreate_ReturnsResolvedHuaweiLabels(t *testing.T) {
+	testCases := []struct {
+		name         string
+		flavor       string
+		requirements karpscheduling.Requirements
+		want         map[string]string
+		absent       []string
+	}{
+		{
+			name:   "complete labels",
+			flavor: "c9.large.2",
+			requirements: karpscheduling.NewRequirements(
+				karpscheduling.NewRequirement(corev1.LabelArchStable, corev1.NodeSelectorOpIn, "amd64"),
+				karpscheduling.NewRequirement(corev1.LabelOSStable, corev1.NodeSelectorOpIn, string(corev1.Linux)),
+				karpscheduling.NewRequirement(corev1.LabelTopologyRegion, corev1.NodeSelectorOpIn, "ap-southeast-3"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpIn, "c"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceFamily, corev1.NodeSelectorOpIn, "c9"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpIn, "9"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceCPU, corev1.NodeSelectorOpIn, "2"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceMemory, corev1.NodeSelectorOpIn, "4096"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceSize, corev1.NodeSelectorOpIn, "large"),
+			),
+			want: map[string]string{
+				corev1.LabelArchStable:           "amd64",
+				corev1.LabelOSStable:             string(corev1.Linux),
+				corev1.LabelTopologyRegion:       "ap-southeast-3",
+				v1alpha1.LabelInstanceCategory:   "c",
+				v1alpha1.LabelInstanceFamily:     "c9",
+				v1alpha1.LabelInstanceGeneration: "9",
+				v1alpha1.LabelInstanceCPU:        "2",
+				v1alpha1.LabelInstanceMemory:     "4096",
+				v1alpha1.LabelInstanceSize:       "large",
+				corev1.LabelInstanceTypeStable:   "c9.large.2",
+				corev1.LabelTopologyZone:         "zone-a",
+				karpv1.CapacityTypeLabelKey:      karpv1.CapacityTypeOnDemand,
+			},
+		},
+		{
+			name:   "partial labels",
+			flavor: "zc12e.01xlarge.2",
+			requirements: karpscheduling.NewRequirements(
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceFamily, corev1.NodeSelectorOpIn, "zc12e"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceGeneration, corev1.NodeSelectorOpIn, "12"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceCPU, corev1.NodeSelectorOpIn, "2"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceMemory, corev1.NodeSelectorOpIn, "4096"),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceCategory, corev1.NodeSelectorOpDoesNotExist),
+				karpscheduling.NewRequirement(v1alpha1.LabelInstanceSize, corev1.NodeSelectorOpDoesNotExist),
+			),
+			want: map[string]string{
+				v1alpha1.LabelInstanceFamily:     "zc12e",
+				v1alpha1.LabelInstanceGeneration: "12",
+				v1alpha1.LabelInstanceCPU:        "2",
+				v1alpha1.LabelInstanceMemory:     "4096",
+				corev1.LabelInstanceTypeStable:   "zc12e.01xlarge.2",
+				corev1.LabelTopologyZone:         "zone-a",
+				karpv1.CapacityTypeLabelKey:      karpv1.CapacityTypeOnDemand,
+			},
+			absent: []string{v1alpha1.LabelInstanceCategory, v1alpha1.LabelInstanceSize},
+		},
 	}
 
-	labels := resolvedNodeClaimLabels(instanceType, createdInstance)
-
-	if got := labels[corev1.LabelInstanceTypeStable]; got != "c9.large.2" {
-		t.Fatalf("expected instance-type label %q, got %q", "c9.large.2", got)
-	}
-	if got := labels[corev1.LabelTopologyZone]; got != "ap-southeast-3a" {
-		t.Fatalf("expected zone label %q, got %q", "ap-southeast-3a", got)
-	}
-	if got := labels[karpv1.CapacityTypeLabelKey]; got != karpv1.CapacityTypeOnDemand {
-		t.Fatalf("expected capacity-type label %q, got %q", karpv1.CapacityTypeOnDemand, got)
-	}
-	if got := labels[corev1.LabelArchStable]; got != "amd64" {
-		t.Fatalf("expected arch label %q, got %q", "amd64", got)
-	}
-	if got := labels[corev1.LabelOSStable]; got != string(corev1.Linux) {
-		t.Fatalf("expected os label %q, got %q", corev1.Linux, got)
-	}
-	if got := labels[corev1.LabelTopologyRegion]; got != "ap-southeast-3" {
-		t.Fatalf("expected region label %q, got %q", "ap-southeast-3", got)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			created, _ := launchTestNodeClaim(t, tc.flavor, tc.requirements)
+			for key, want := range tc.want {
+				if got := created.Labels[key]; got != want {
+					t.Errorf("expected label %q=%q, got %q", key, want, got)
+				}
+			}
+			for _, key := range tc.absent {
+				if value, ok := created.Labels[key]; ok {
+					t.Errorf("expected label %q to be absent, got %q", key, value)
+				}
+			}
+		})
 	}
 }
 
@@ -136,7 +177,8 @@ func TestAreStaticFieldsDrifted_ReturnsNodeClassDriftWhenHashesDiffer(t *testing
 	}
 }
 
-func TestCreate_AnnotatesReturnedNodeClaimWithCCENodeClassHash(t *testing.T) {
+func launchTestNodeClaim(t *testing.T, flavor string, requirements karpscheduling.Requirements) (*karpv1.NodeClaim, *v1alpha1.CCENodeClass) {
+	t.Helper()
 	nodeClass := &v1alpha1.CCENodeClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: v1alpha1.CCENodeClassSpec{
@@ -160,21 +202,19 @@ func TestCreate_AnnotatesReturnedNodeClaimWithCCENodeClassHash(t *testing.T) {
 		kubeClient: kubeClient,
 		instanceTypeProvider: &stubCloudProviderInstanceTypeProvider{
 			instanceTypes: []*karpcloudprovider.InstanceType{{
-				Name: "c9.large.2",
+				Name: flavor,
 				Capacity: corev1.ResourceList{
 					corev1.ResourceCPU: resource.MustParse("2"),
 				},
-				Overhead: &karpcloudprovider.InstanceTypeOverhead{},
-				Requirements: karpscheduling.NewRequirements(
-					karpscheduling.NewRequirement(corev1.LabelTopologyZone, corev1.NodeSelectorOpIn, "zone-a"),
-				),
+				Overhead:     &karpcloudprovider.InstanceTypeOverhead{},
+				Requirements: requirements,
 			}},
 		},
 		instanceProvider: &stubCloudProviderInstanceProvider{
 			instance: &instanceprovider.Instance{
 				NodeID:   "node-123",
 				ServerID: "server-123",
-				Flavor:   "c9.large.2",
+				Flavor:   flavor,
 				Zone:     "zone-a",
 			},
 		},
@@ -191,8 +231,16 @@ func TestCreate_AnnotatesReturnedNodeClaimWithCCENodeClassHash(t *testing.T) {
 
 	created, err := provider.Create(context.Background(), nodeClaim)
 	if err != nil {
-		t.Fatalf("expected create to succeed, got %v", err)
+		t.Fatalf("creating test NodeClaim: %v", err)
 	}
+	return created, nodeClass
+}
+
+func TestCreate_AnnotatesReturnedNodeClaimWithCCENodeClassHash(t *testing.T) {
+	created, nodeClass := launchTestNodeClaim(t, "c9.large.2", karpscheduling.NewRequirements(
+		karpscheduling.NewRequirement(corev1.LabelTopologyZone, corev1.NodeSelectorOpIn, "zone-a"),
+	))
+
 	if got := created.Annotations[v1alpha1.AnnotationNodeID]; got != "node-123" {
 		t.Fatalf("expected node id annotation %q, got %q", "node-123", got)
 	}
@@ -204,6 +252,79 @@ func TestCreate_AnnotatesReturnedNodeClaimWithCCENodeClassHash(t *testing.T) {
 	}
 	if got := created.Annotations[v1alpha1.AnnotationCCENodeClassHashVersion]; got != v1alpha1.CCENodeClassHashVersion {
 		t.Fatalf("expected ccenodeclass hash version %q, got %q", v1alpha1.CCENodeClassHashVersion, got)
+	}
+}
+
+func TestGetAndList_DoNotBackfillResolvedHuaweiLabels(t *testing.T) {
+	provider := &CloudProvider{
+		instanceProvider: &stubCloudProviderInstanceProvider{
+			instance: &instanceprovider.Instance{NodeID: "node-123"},
+		},
+	}
+
+	got, err := provider.Get(context.Background(), "node-123")
+	if err != nil {
+		t.Fatalf("getting NodeClaim: %v", err)
+	}
+	if len(got.Labels) != 0 {
+		t.Fatalf("expected Get not to backfill labels, got %v", got.Labels)
+	}
+
+	listed, err := provider.List(context.Background())
+	if err != nil {
+		t.Fatalf("listing NodeClaims: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected one NodeClaim, got %d", len(listed))
+	}
+	if len(listed[0].Labels) != 0 {
+		t.Fatalf("expected List not to backfill labels, got %v", listed[0].Labels)
+	}
+}
+
+func TestIsDrifted_DoesNotRequireResolvedHuaweiLabels(t *testing.T) {
+	nodeClass := &v1alpha1.CCENodeClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Status: v1alpha1.CCENodeClassStatus{
+			Subnets: []v1alpha1.Subnet{{ID: "subnet-123"}},
+		},
+	}
+	nodePool := &karpv1.NodePool{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: karpv1.NodePoolSpec{
+			Template: karpv1.NodeClaimTemplate{
+				Spec: karpv1.NodeClaimTemplateSpec{
+					NodeClassRef: &karpv1.NodeClassReference{
+						Group: "karpenter.k8s.huawei",
+						Kind:  "CCENodeClass",
+						Name:  nodeClass.Name,
+					},
+				},
+			},
+		},
+	}
+	provider := &CloudProvider{
+		kubeClient: fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(nodeClass, nodePool).Build(),
+		instanceProvider: &stubCloudProviderInstanceProvider{
+			instance: &instanceprovider.Instance{SubnetID: "subnet-123"},
+		},
+	}
+	nodeClaim := &karpv1.NodeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{karpv1.NodePoolLabelKey: nodePool.Name},
+		},
+		Status: karpv1.NodeClaimStatus{ProviderID: "node-123"},
+	}
+
+	driftReason, err := provider.IsDrifted(context.Background(), nodeClaim)
+	if err != nil {
+		t.Fatalf("checking drift: %v", err)
+	}
+	if driftReason != "" {
+		t.Fatalf("expected missing resolved Huawei labels not to cause drift, got %q", driftReason)
+	}
+	if len(nodeClaim.Labels) != 1 {
+		t.Fatalf("expected drift check not to backfill labels, got %v", nodeClaim.Labels)
 	}
 }
 
