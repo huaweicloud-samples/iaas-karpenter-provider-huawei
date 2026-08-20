@@ -37,6 +37,7 @@ import (
 
 	"github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/pkg/providers/version"
 
+	nodeclaimcapacity "github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/pkg/controllers/nodeclaim/capacity"
 	nodeclasshash "github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/pkg/controllers/nodeclass/hash"
 	controllersinstancetype "github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/pkg/controllers/providers/instancetype"
 	controllerspricing "github.com/HuaweiCloudDeveloper/karpenter-provider-huawei/pkg/controllers/providers/pricing"
@@ -62,6 +63,7 @@ func NewControllers(
 		controllersinstancetype.NewController(instanceTypeProvider),
 		controllerspricing.NewController(pricingProvider, instanceTypeProvider),
 		unregisteredtaint.NewController(kubeClient),
+		nodeclaimcapacity.NewController(kubeClient, instanceTypeProvider),
 		nodeclasshash.NewController(kubeClient),
 	}
 	return controllers
