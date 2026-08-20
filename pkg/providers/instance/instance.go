@@ -314,6 +314,15 @@ func nodeSpecForCandidate(nodeClass *v1alpha1.CCENodeClass, nodeClaim *karpv1.No
 		"karpenter.k8s.huawei/nodeclaim-uid": string(nodeClaim.UID),
 	}
 
+	var userTags *[]cceMdl.UserTag
+	if len(nodeClass.Spec.Tags) > 0 {
+		tags := lo.Map(lo.Keys(nodeClass.Spec.Tags), func(k string, _ int) cceMdl.UserTag {
+			return cceMdl.UserTag{Key: lo.ToPtr(k), Value: lo.ToPtr(nodeClass.Spec.Tags[k])}
+		})
+		sort.Slice(tags, func(i, j int) bool { return *tags[i].Key < *tags[j].Key })
+		userTags = &tags
+	}
+
 	subnetID := c.subnetID
 	var os *string
 	if osAlias != "" {
@@ -335,8 +344,9 @@ func nodeSpecForCandidate(nodeClass *v1alpha1.CCENodeClass, nodeClaim *karpv1.No
 		NodeNicSpec: &cceMdl.NodeNicSpec{
 			PrimaryNic: &cceMdl.NicSpec{SubnetId: &subnetID},
 		},
-		Taints:  toCCETaints(nodeClaim),
-		K8sTags: k8sTags,
+		Taints:   toCCETaints(nodeClaim),
+		K8sTags:  k8sTags,
+		UserTags: userTags,
 	}
 	return spec, nil
 }
