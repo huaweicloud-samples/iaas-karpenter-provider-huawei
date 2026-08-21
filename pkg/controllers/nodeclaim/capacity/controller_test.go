@@ -31,8 +31,8 @@ func TestIsRegisteredKarpenterNode(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "n1",
 				Labels: map[string]string{
-					karpv1.NodePoolLabelKey:       "poc",
-					karpv1.NodeRegisteredLabelKey: "true",
+					karpv1.NodePoolLabelKey:        "poc",
+					karpv1.NodeRegisteredLabelKey:  "true",
 					corev1.LabelInstanceTypeStable: "t7.large.2",
 				},
 			},
