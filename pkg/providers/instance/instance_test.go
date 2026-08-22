@@ -1466,3 +1466,61 @@ func hasCCETaint(taints *[]cceMdl.Taint, key, effect string) bool {
 	}
 	return false
 }
+
+func TestNodeSpecForCandidate_MapsUserTags(t *testing.T) {
+	nodeClass := &v1alpha1.CCENodeClass{
+		Spec: v1alpha1.CCENodeClassSpec{
+			IMSSelector: v1alpha1.IMSSelector{IMSFamily: "HCE OS 2.0"},
+			Login:       v1alpha1.Login{SSHKey: "kp"},
+			Tags: map[string]string{
+				"Environment": "test",
+				"Namespace":   "stk",
+			},
+		},
+	}
+	spec, err := nodeSpecForCandidate(
+		nodeClass,
+		&karpv1.NodeClaim{},
+		createCandidate{
+			instanceType: &cloudprovider.InstanceType{Name: "c9.large.2"},
+			zone:         "ap-southeast-3a",
+			subnetID:     "subnet-123",
+		},
+		"HCE OS 2.0",
+	)
+	if err != nil {
+		t.Fatalf("expected node spec creation to succeed, got %v", err)
+	}
+	if spec.UserTags == nil || len(*spec.UserTags) != 2 {
+		t.Fatalf("expected 2 user tags, got %#v", spec.UserTags)
+	}
+	// Sorted by key for determinism.
+	if *(*spec.UserTags)[0].Key != "Environment" || *(*spec.UserTags)[0].Value != "test" {
+		t.Fatalf("unexpected first tag: %#v", (*spec.UserTags)[0])
+	}
+	if *(*spec.UserTags)[1].Key != "Namespace" || *(*spec.UserTags)[1].Value != "stk" {
+		t.Fatalf("unexpected second tag: %#v", (*spec.UserTags)[1])
+	}
+}
+
+func TestNodeSpecForCandidate_NoUserTagsWhenUnset(t *testing.T) {
+	spec, err := nodeSpecForCandidate(
+		&v1alpha1.CCENodeClass{Spec: v1alpha1.CCENodeClassSpec{
+			IMSSelector: v1alpha1.IMSSelector{IMSFamily: "HCE OS 2.0"},
+			Login:       v1alpha1.Login{SSHKey: "kp"},
+		}},
+		&karpv1.NodeClaim{},
+		createCandidate{
+			instanceType: &cloudprovider.InstanceType{Name: "c9.large.2"},
+			zone:         "ap-southeast-3a",
+			subnetID:     "subnet-123",
+		},
+		"HCE OS 2.0",
+	)
+	if err != nil {
+		t.Fatalf("expected node spec creation to succeed, got %v", err)
+	}
+	if spec.UserTags != nil {
+		t.Fatalf("expected nil user tags, got %#v", spec.UserTags)
+	}
+}

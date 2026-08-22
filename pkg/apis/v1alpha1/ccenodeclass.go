@@ -66,6 +66,13 @@ type CCENodeClassSpec struct {
 	// Login defines the node login configuration.
 	// +required
 	Login Login `json:"login" hash:"ignore"`
+
+	// Tags are ECS resource tags applied to the server backing the node,
+	// e.g. for cost allocation. Keys must not start with "CCE-" or
+	// "__type_baremetal" (reserved by CCE).
+	// +kubebuilder:validation:XValidation:message="tag keys must not start with 'CCE-' or '__type_baremetal'",rule="self.all(k, !k.startsWith('CCE-') && !k.startsWith('__type_baremetal'))"
+	// +optional
+	Tags map[string]string `json:"tags,omitempty"`
 }
 
 type normalizedIMSSelection struct {

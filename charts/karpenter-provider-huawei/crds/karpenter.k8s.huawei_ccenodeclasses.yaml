@@ -250,6 +250,17 @@ spec:
                   rule: self.size() != 0
                 - message: expected at least one, got none, ['name', 'id']
                   rule: self.all(x, has(x.name) || has(x.id))
+              tags:
+                additionalProperties:
+                  type: string
+                description: |-
+                  Tags are ECS resource tags applied to the server backing the node,
+                  e.g. for cost allocation. Keys must not start with "CCE-" or
+                  "__type_baremetal" (reserved by CCE).
+                type: object
+                x-kubernetes-validations:
+                - message: tag keys must not start with 'CCE-' or '__type_baremetal'
+                  rule: self.all(k, !k.startsWith('CCE-') && !k.startsWith('__type_baremetal'))
             required:
             - blockDeviceMappings
             - imsSelector
