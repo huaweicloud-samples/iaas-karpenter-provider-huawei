@@ -19,6 +19,8 @@ package instancetype
 import (
 	"context"
 	"fmt"
+	"math"
+	"os"
 	"strconv"
 	"strings"
 
@@ -54,6 +56,8 @@ const (
 	ext4GroupsPerDescriptorBlock         int64 = 64
 	ext4InodeBlocksPerGroup              int64 = 512
 	ext4PointersPerBlock                 int64 = ext4BlockSizeBytes / 4
+	vmMemoryOverheadPercentEnv                 = "VM_MEMORY_OVERHEAD_PERCENT"
+	defaultVMMemoryOverheadPercent             = 0.075
 	systemReservedBaseMemoryMiB          int64 = 400
 	systemReservedPerGiBMiB              int64 = 25
 	kubeReservedBaseMemoryMiB            int64 = 500
@@ -338,7 +342,23 @@ func cpu(info ecsMdl.Flavor) *resource.Quantity {
 }
 
 func memory(info ecsMdl.Flavor) *resource.Quantity {
-	return resources.Quantity(fmt.Sprintf("%dMi", info.Ram))
+	mem := resources.Quantity(fmt.Sprintf("%dMi", info.Ram))
+	// The flavor advertises the full VM memory size, but the guest kernel
+	// consumes part of it before the kubelet ever sees it, so the node
+	// registers with a smaller capacity than the flavor RAM. Subtract a
+	// configurable overhead percentage so instance types are not
+	// overestimated during scheduling simulation.
+	mem.Sub(resource.MustParse(fmt.Sprintf("%dMi", int64(math.Ceil(float64(info.Ram)*vmMemoryOverheadPercent())))))
+	return mem
+}
+
+func vmMemoryOverheadPercent() float64 {
+	if v := os.Getenv(vmMemoryOverheadPercentEnv); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f < 1 {
+			return f
+		}
+	}
+	return defaultVMMemoryOverheadPercent
 }
 
 func ephemeralStorage(blockDeviceMappings v1alpha1.BlockDeviceMappings) *resource.Quantity {

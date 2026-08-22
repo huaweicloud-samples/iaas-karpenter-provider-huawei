@@ -308,6 +308,7 @@ func TestDefaultMaxPods_FallsBackToMemoryWhenNICCapMissing(t *testing.T) {
 }
 
 func TestNewInstanceType_UsesCCEMemoryReservationModel(t *testing.T) {
+	t.Setenv("VM_MEMORY_OVERHEAD_PERCENT", "0")
 	flavor := ecsMdl.Flavor{
 		Name:  "c6.large.2",
 		Ram:   8192,
@@ -327,6 +328,7 @@ func TestNewInstanceType_UsesCCEMemoryReservationModel(t *testing.T) {
 }
 
 func TestNewInstanceType_KubeReservedUsesMemoryTierDefaultPodCount(t *testing.T) {
+	t.Setenv("VM_MEMORY_OVERHEAD_PERCENT", "0")
 	flavor := ecsMdl.Flavor{
 		Name:  "c9.large.2",
 		Ram:   4096,
@@ -475,5 +477,23 @@ func assertQuantityEqual(t *testing.T, got resource.Quantity, want string) {
 	expected := resource.MustParse(want)
 	if got.Cmp(expected) != 0 {
 		t.Fatalf("expected quantity %s, got %s", expected.String(), got.String())
+	}
+}
+
+func TestMemoryAppliesVMOverhead(t *testing.T) {
+	t.Setenv("VM_MEMORY_OVERHEAD_PERCENT", "")
+	info := ecsMdl.Flavor{Ram: 4096}
+	got := memory(info)
+	// 4096Mi - ceil(4096*0.075)=308Mi = 3788Mi
+	want := resource.MustParse("3788Mi")
+	if got.Cmp(want) != 0 {
+		t.Fatalf("memory() = %s, want %s", got.String(), want.String())
+	}
+
+	t.Setenv("VM_MEMORY_OVERHEAD_PERCENT", "0")
+	got = memory(info)
+	want = resource.MustParse("4096Mi")
+	if got.Cmp(want) != 0 {
+		t.Fatalf("memory() with 0%% overhead = %s, want %s", got.String(), want.String())
 	}
 }
