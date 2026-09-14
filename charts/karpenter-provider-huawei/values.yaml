@@ -8,7 +8,7 @@ image:
   # -- Controller image repository
   repository: swr.ap-southeast-3.myhuaweicloud.com/hwclouddeveloper/cce/karpenter/controller
   # -- Controller image tag
-  tag: "0.3.1"
+  tag: "0.3.2"
   # -- Image pull policy
   pullPolicy: IfNotPresent
 

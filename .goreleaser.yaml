@@ -1,5 +1,9 @@
 version: 2
 
+before:
+  hooks:
+    - helm package charts/karpenter-provider-huawei --destination .
+
 builds:
   - id: karpenter-provider-huawei
     main: ./cmd/controller
@@ -16,3 +20,5 @@ archives: []
 release:
   discussion_category_name: General
   draft: true
+  extra_files:
+    - glob: './karpenter-provider-huawei-*.tgz'

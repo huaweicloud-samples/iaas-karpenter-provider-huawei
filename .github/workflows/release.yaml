@@ -55,3 +55,41 @@ jobs:
         args: release --clean --config .goreleaser.yaml
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  helm-publish:
+    name: Publish Helm chart to ghcr.io
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clone the code
+      uses: actions/checkout@v4
+    - name: Set release info
+      run: |
+        echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+        echo "IMAGE_REPO=$(echo "${GITHUB_REPOSITORY%%/*}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+    - name: Setup Helm
+      uses: azure/setup-helm@v5
+      with:
+        version: v3.16.4
+    - name: Login to registry ghcr.io
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Verify chart version matches tag
+      run: |
+        CHART_VERSION="$(sed -n 's/^version:[[:space:]]*//p' charts/karpenter-provider-huawei/Chart.yaml)"
+        if [ "${CHART_VERSION}" != "${RELEASE_TAG#v}" ]; then
+          echo "Chart version ${CHART_VERSION} does not match tag ${RELEASE_TAG}"
+          exit 1
+        fi
+    - name: Package chart
+      run: |
+        helm lint charts/karpenter-provider-huawei
+        helm package charts/karpenter-provider-huawei --destination charts
+    - name: Push chart
+      run: |
+        OCI_REF="oci://ghcr.io/${IMAGE_REPO}/charts"
+        CHART_TGZ="charts/karpenter-provider-huawei-${RELEASE_TAG#v}.tgz"
+        echo "Pushing ${CHART_TGZ} to ${OCI_REF}"
+        helm push "${CHART_TGZ}" "${OCI_REF}"

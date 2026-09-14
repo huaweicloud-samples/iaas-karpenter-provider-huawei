@@ -32,6 +32,15 @@ Karpenter improves the efficiency and cost of running workloads on Kubernetes cl
 
 ### 1. Install via Helm
 
+The chart is published to the GitHub Container Registry as an OCI artifact:
+
+```bash
+helm install karpenter-provider-huawei \
+  oci://ghcr.io/huaweicloud-samples/charts/karpenter-provider-huawei \
+  --version <chart-version> \
+  ...
+```
+
 #### Using AK/SK credentials
 
 ```bash
